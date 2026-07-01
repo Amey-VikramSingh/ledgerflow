@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ledger
+      POSTGRES_PASSWORD: ledger
+      POSTGRES_DB: ledgerflow
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ledger -d ledgerflow']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # The API is optional in local dev — most days you'll run `npm run dev` on the
+  # host and only bring up the dependencies:
+  #     docker compose up postgres redis
+  # Enable this service (profile "app") to run everything in containers:
+  #     docker compose --profile app up
+  api:
+    profiles: ['app']
+    build: .
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgres://ledger:ledger@postgres:5432/ledgerflow
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
