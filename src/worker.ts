@@ -48,6 +48,8 @@ void relayLoop();
 logger.info('ledgerflow worker started');
 
 async function shutdown(signal: string): Promise<void> {
+  // A second signal (e.g. Ctrl+C twice) must not close everything twice.
+  if (stopping) return;
   logger.info({ signal }, 'worker shutdown initiated');
   stopping = true;
   if (relayTimer) clearTimeout(relayTimer);

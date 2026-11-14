@@ -3,6 +3,7 @@ import { pool } from '../db/pool';
 import { config } from '../config';
 import { connection, WEBHOOK_QUEUE } from '../queue';
 import { signWebhook, fetchWithTimeout } from '../shared/webhook';
+import { secretBox } from '../shared/secrets';
 import { withRemoteSpan } from '../telemetry/trace';
 import { webhookDeliveries } from '../telemetry/metrics';
 import { logger } from '../telemetry/logger';
@@ -13,8 +14,10 @@ interface DeliveryJob {
 }
 
 /**
- * Delivers a single (event, endpoint) webhook. At-least-once from BullMQ, made
- * effectively exactly-once per endpoint by the idempotent status check.
+ * Delivers a single (event, endpoint) webhook. At-least-once: the status check
+ * skips jobs already marked 'success', but if the receiver processed a request
+ * whose response we never saw (e.g. timeout), it will be delivered again.
+ * Receivers must deduplicate by event id.
  * Retries use BullMQ's exponential backoff; after the final attempt the job
  * lands in the failed set (DLQ) and the delivery row is marked 'dead'.
  */
@@ -30,9 +33,9 @@ export function startWebhookWorker(): Worker {
           payload: unknown;
           event_type: string;
           url: string;
-          secret: string;
+          secret_ciphertext: string;
         }>(
-          `SELECT d.status, e.payload, e.event_type, w.url, w.secret
+          `SELECT d.status, e.payload, e.event_type, w.url, w.secret_ciphertext
            FROM webhook_deliveries d
            JOIN outbox_events e ON e.id = d.event_id
            JOIN webhook_endpoints w ON w.id = d.endpoint_id
@@ -45,7 +48,7 @@ export function startWebhookWorker(): Worker {
 
         const body = JSON.stringify({ type: del.event_type, data: del.payload });
         const timestamp = Math.floor(Date.now() / 1000).toString();
-        const signature = signWebhook(del.secret, timestamp, body);
+        const signature = signWebhook(secretBox.decrypt(del.secret_ciphertext), timestamp, body);
         const attemptNo = job.attemptsMade + 1;
 
         try {

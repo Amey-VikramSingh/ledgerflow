@@ -3,6 +3,7 @@
 #   fly postgres create   # sets DATABASE_URL secret
 #   # Upstash Redis (fly ext) or any managed Redis -> set REDIS_URL
 #   fly secrets set JWT_SECRET=$(openssl rand -base64 48)
+#   fly secrets set SECRETS_ENCRYPTION_KEY=$(openssl rand -base64 32)
 # Run migrations as a release step (below), then: fly deploy
 app = "ledgerflow"
 primary_region = "bom"   # Mumbai

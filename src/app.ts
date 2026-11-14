@@ -1,6 +1,5 @@
 import express, { type Express } from 'express';
 import helmet from 'helmet';
-import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import pinoHttp from 'pino-http';
@@ -16,6 +15,7 @@ import { walletRouter } from './modules/wallets/wallet.routes';
 import { ledgerRouter } from './modules/ledger/ledger.routes';
 import { webhookRouter } from './modules/webhooks/webhook.routes';
 import { errorHandler, notFoundHandler } from './middleware/error';
+import { resolveRequestId } from './shared/request-id';
 
 export function createApp(): Express {
   const app = express();
@@ -24,19 +24,24 @@ export function createApp(): Express {
   app.set('trust proxy', 1);
 
   app.use(helmet());
-  app.use(express.json({ limit: '1mb' }));
   app.use(httpMetrics);
 
+  // Request id + structured logging run BEFORE body parsing, so a request
+  // rejected by the parser (malformed JSON, body too large) is still logged
+  // and still gets a request id in its error envelope. A client-supplied
+  // x-request-id is only honoured if it is a short plain token.
   app.use(
     pinoHttp({
       logger,
       genReqId: (req, res) => {
-        const id = (req.headers['x-request-id'] as string) ?? randomUUID();
+        const id = resolveRequestId(req.headers['x-request-id']);
         res.setHeader('x-request-id', id);
         return id;
       },
     }),
   );
+
+  app.use(express.json({ limit: '1mb' }));
 
   // Global per-IP rate limit.
   app.use(

@@ -53,7 +53,7 @@ docker compose up postgres redis -d
 # 4. Run database migrations
 npm run migrate:up
 
-# 5. Seed demo data (1 tenant, 1 user, 1 wallet with ₹1000, 1 webhook endpoint)
+# 5. Seed demo data (1 tenant, 1 user, a wallet with a ₹1000 opening transaction, 1 webhook endpoint)
 npm run seed
 
 # 6. Start the API server
@@ -143,14 +143,16 @@ All business endpoints require authentication via **JWT** (`Authorization: Beare
 
 | Guarantee | Mechanism |
 |-----------|-----------|
-| **Double-entry accounting** | Every transfer creates one debit + one credit entry; entries always sum to zero |
+| **Double-entry accounting** | Every transfer creates one debit + one credit entry; a deferred database trigger rejects any transaction whose entries don't sum to zero |
+| **Append-only ledger** | Database triggers reject `UPDATE`, `DELETE` and `TRUNCATE` on `ledger_entries` |
+| **Tenant isolation** | `ledger_entries.tenant_id` + composite foreign keys: an entry, its transaction and its wallet must belong to the same tenant |
 | **No oversell** | Optimistic locking (`version = $expected`) + `balance + delta >= 0` + database CHECK constraint |
 | **Deadlock-free** | Wallet updates applied in canonical (sorted-by-id) order |
 | **Idempotent writes** | `UNIQUE(tenant_id, key)` constraint; replays return stored response; body mismatch → 422; released on 5xx |
 | **Transactional outbox** | Event written in the SAME database transaction as the money movement — no dual-write gap |
-| **Exactly-once relay** | `FOR UPDATE SKIP LOCKED` claims events; enqueue before marking published |
-| **Exactly-once delivery** | `UNIQUE(event_id, endpoint_id)` + idempotent worker skip on `status = 'success'` |
-| **Signed webhooks** | HMAC-SHA256 over `timestamp.body` |
+| **Safe concurrent relay** | `FOR UPDATE SKIP LOCKED` claims events; enqueue before marking published |
+| **At-least-once delivery** | `UNIQUE(event_id, endpoint_id)` + worker skips `status = 'success'`; receivers must dedupe by event id (a timed-out request may be retried after the receiver processed it) |
+| **Signed webhooks** | HMAC-SHA256 over `timestamp.body`; signing secrets stored AES-256-GCM encrypted |
 | **Retries + DLQ** | BullMQ exponential backoff, 8 attempts max, failed set = dead-letter queue |
 | **Refresh token rotation** | Family-based reuse detection — replaying a rotated token revokes the entire family |
 
@@ -166,12 +168,12 @@ All money values are stored as **`BIGINT` minor units** (paise/cents) — never 
 | `users` | Dashboard identity with `UNIQUE(tenant_id, email)` |
 | `api_keys` | Programmatic auth — stores `sha256(key)`, never the raw key |
 | `refresh_tokens` | Session rotation with `family_id` for reuse detection |
-| `wallets` | Balance holder with `version` for optimistic locking |
+| `wallets` | Balance holder with `version` for optimistic locking; `kind` = `user` \| `system` (internal counter-account) |
 | `transactions` | Logical money movement grouping |
 | `ledger_entries` | Append-only double-entry lines |
 | `idempotency_keys` | Ingress deduplication |
 | `outbox_events` | Reliable events (partial index on `pending`) |
-| `webhook_endpoints` | Delivery targets with per-tenant HMAC secret |
+| `webhook_endpoints` | Delivery targets with per-tenant HMAC secret (encrypted at rest) |
 | `webhook_deliveries` | Delivery tracking with `UNIQUE(event_id, endpoint_id)` |
 
 ### Migrations
@@ -181,7 +183,16 @@ npm run migrate:up     # Apply all migrations
 npm run migrate:down   # Roll back the latest migration
 ```
 
-Migration order: `extensions → identity → ledger → idempotency+outbox → webhooks`
+Migration order: `extensions → identity → ledger → idempotency+outbox → webhooks → outbox trace context → integrity hardening`
+
+**Upgrading a database created before `1700000000006_integrity-hardening`:** that migration starts storing webhook signing secrets encrypted, but it can't encrypt existing ones (the key isn't in the database). Run this once afterwards, or deliveries to existing endpoints will fail:
+
+```bash
+npm run migrate:up
+npm run secrets:encrypt   # safe to re-run; already-encrypted rows are skipped
+```
+
+Rules the database now enforces (balanced transactions, append-only ledger, tenant isolation, system wallets) are described in [docs/schema.md](docs/schema.md).
 
 ---
 
@@ -287,6 +298,7 @@ fly launch --no-deploy
 fly postgres create                                    # Sets DATABASE_URL
 fly secrets set REDIS_URL=redis://...                  # Managed Redis (e.g. Upstash)
 fly secrets set JWT_SECRET=$(openssl rand -base64 48)
+fly secrets set SECRETS_ENCRYPTION_KEY=$(openssl rand -base64 32)
 fly deploy                                             # Runs migrate:up, then starts web + worker
 ```
 
@@ -302,7 +314,8 @@ See [`.env.example`](.env.example) for all configuration options. Key variables:
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | ✅ | — | PostgreSQL connection string |
 | `REDIS_URL` | ✅ | — | Redis connection string |
-| `JWT_SECRET` | ✅ | — | Signing key for access tokens (min 32 chars) |
+| `JWT_SECRET` | ✅ | — | Signing key for access tokens (min 32 chars). The `.env.example` value is rejected in production |
+| `SECRETS_ENCRYPTION_KEY` | ✅ | — | 32-byte base64 key encrypting webhook secrets at rest. The `.env.example` value is rejected in production |
 | `PORT` | | `3000` | API server port |
 | `OTEL_ENABLED` | | `false` | Enable OpenTelemetry tracing |
 | `WEBHOOK_MAX_ATTEMPTS` | | `8` | Max webhook delivery retries |

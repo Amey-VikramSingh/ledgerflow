@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { AppError } from '../shared/errors';
+import { classifyClientError } from '../shared/http-errors';
 import { logger } from '../telemetry/logger';
 
 /**
@@ -21,12 +22,27 @@ export function errorHandler(
   err: unknown,
   req: Request,
   res: Response,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _next: NextFunction,
+  next: NextFunction,
 ): void {
+  // If the response has already started we can't send an envelope; let
+  // Express close the connection.
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+
   if (err instanceof AppError) {
     res.status(err.statusCode).json({
       error: { type: err.type, message: err.message, request_id: req.id },
+    });
+    return;
+  }
+
+  // Malformed JSON, oversized body, etc. — a 4xx, not an internal error.
+  const clientError = classifyClientError(err);
+  if (clientError) {
+    res.status(clientError.status).json({
+      error: { type: clientError.type, message: clientError.message, request_id: req.id },
     });
     return;
   }

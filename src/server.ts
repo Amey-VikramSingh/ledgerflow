@@ -14,14 +14,25 @@ const server = app.listen(config.PORT, () => {
   );
 });
 
+server.on('error', (err) => {
+  logger.fatal({ err }, 'http server failed to start');
+  process.exit(1);
+});
+
 /**
  * Graceful shutdown: on SIGTERM/SIGINT stop accepting new connections,
  * drain in-flight requests, then close the pool and Redis. If it takes
  * too long, force-exit so the orchestrator isn't left waiting.
  * Reviewers check for this — a service that dies mid-request loses data.
  */
-async function shutdown(signal: string): Promise<void> {
-  logger.info({ signal }, 'shutdown initiated');
+let shuttingDown = false;
+
+function shutdown(reason: string, exitCode = 0): void {
+  // A second signal (e.g. Ctrl+C twice) must not close the pool twice.
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  logger.info({ reason }, 'shutdown initiated');
 
   const forceExit = setTimeout(() => {
     logger.error('forced shutdown after timeout');
@@ -29,18 +40,29 @@ async function shutdown(signal: string): Promise<void> {
   }, config.SHUTDOWN_TIMEOUT_MS);
   forceExit.unref();
 
-  server.close(async () => {
-    try {
-      await pool.end();
-      await redis.quit();
-      logger.info('clean shutdown complete');
-      process.exit(0);
-    } catch (err) {
-      logger.error({ err }, 'error during shutdown');
-      process.exit(1);
-    }
+  server.close(() => {
+    Promise.all([pool.end(), redis.quit()])
+      .then(() => {
+        logger.info('clean shutdown complete');
+        process.exit(exitCode);
+      })
+      .catch((err: unknown) => {
+        logger.error({ err }, 'error during shutdown');
+        process.exit(1);
+      });
   });
 }
 
-process.on('SIGTERM', () => void shutdown('SIGTERM'));
-process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// A bug that escapes every handler leaves the process in an unknown state:
+// log it, then shut down cleanly and let the orchestrator restart us.
+process.on('unhandledRejection', (reason) => {
+  logger.fatal({ err: reason }, 'unhandled promise rejection');
+  shutdown('unhandledRejection', 1);
+});
+process.on('uncaughtException', (err) => {
+  logger.fatal({ err }, 'uncaught exception');
+  shutdown('uncaughtException', 1);
+});

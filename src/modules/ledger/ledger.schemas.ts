@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
 export const transferSchema = z.object({
-  from_wallet_id: z.string().uuid(),
-  to_wallet_id: z.string().uuid(),
+  from_wallet_id: z.guid(),
+  to_wallet_id: z.guid(),
   amount: z.number().int().positive(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export type TransferBody = z.infer<typeof transferSchema>;
 
