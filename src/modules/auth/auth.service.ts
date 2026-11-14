@@ -48,10 +48,18 @@ export function verifyAccessToken(token: string): AccessPayload {
   return jwt.verify(token, config.JWT_SECRET) as AccessPayload;
 }
 
+/** Postgres unique_violation on the global email index. */
+function isDuplicateEmail(err: unknown): boolean {
+  const e = err as { code?: string; constraint?: string };
+  return e?.code === '23505' && e.constraint === 'users_email_unique';
+}
+
 /**
  * Signup creates a new tenant (organization) and an owner user, atomically.
- * V1 treats email as globally unique for simple login-by-email (checked at
- * the app layer); the schema also enforces uniqueness within a tenant.
+ * Email is globally unique, because login identifies a user by email alone.
+ * The pre-check below gives the usual fast answer; the users_email_unique
+ * index (migration 1700000000007) is what actually guarantees it when two
+ * sign-ups for the same email race past the pre-check together.
  */
 export async function registerOrg(input: RegisterInput): Promise<{
   id: string;
@@ -89,6 +97,9 @@ export async function registerOrg(input: RegisterInput): Promise<{
     return { id: row.id, email: row.email, tenant_id: tenantId, role: row.role };
   } catch (err) {
     await client.query('ROLLBACK');
+    if (isDuplicateEmail(err)) {
+      throw new ConflictError('email already registered');
+    }
     throw err;
   } finally {
     client.release();
@@ -96,16 +107,34 @@ export async function registerOrg(input: RegisterInput): Promise<{
 }
 
 /**
- * Verify credentials and issue tokens. Returns the SAME error for unknown
- * email and wrong password so we don't leak which emails exist.
+ * A real argon2 hash of a random password, computed once. Login verifies
+ * against it when the email is unknown, so an unknown email takes as long
+ * as a wrong password and response time doesn't reveal which emails exist.
+ */
+let dummyHash: Promise<string> | undefined;
+function getDummyHash(): Promise<string> {
+  dummyHash ??= hashPassword(randomToken());
+  return dummyHash;
+}
+
+/**
+ * Verify credentials and issue tokens. Returns the SAME error, after the
+ * same amount of work, for unknown email and wrong password, so we don't
+ * leak which emails exist.
  */
 export async function login(input: LoginInput): Promise<TokenPair> {
+  // Email is globally unique (users_email_unique), so this is at most one row.
   const { rows } = await pool.query<UserRow>(
-    'SELECT id, tenant_id, role, email, password_hash FROM users WHERE email = $1 LIMIT 1',
+    'SELECT id, tenant_id, role, email, password_hash FROM users WHERE email = $1',
     [input.email],
   );
   const user = rows[0];
-  const ok = user ? await verifyPassword(user.password_hash, input.password) : false;
+  let ok = false;
+  if (user) {
+    ok = await verifyPassword(user.password_hash, input.password);
+  } else {
+    await verifyPassword(await getDummyHash(), input.password); // timing only; result ignored
+  }
   if (!user || !ok) {
     throw new UnauthorizedError('invalid credentials');
   }
