@@ -33,7 +33,7 @@ Built with Node.js, TypeScript, Express, PostgreSQL, Redis, and BullMQ.
 
 ## Prerequisites
 
-- **Node.js** 20+
+- **Node.js** 22+ (the test runner uses Node 22 glob support; the production image runs Node 20)
 - **Docker** + Docker Compose
 
 ---

@@ -13,8 +13,8 @@
     "migrate:up": "node-pg-migrate up",
     "migrate:down": "node-pg-migrate down",
     "seed": "tsx src/db/seed.ts",
-    "test": "tsx --test src/**/*.test.ts",
-    "test:integration": "tsx --test src/**/*.itest.ts",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test:integration": "tsx --test \"src/**/*.itest.ts\"",
     "typecheck": "tsc --noEmit",
     "load:setup": "tsx load/setup.ts",
     "secrets:encrypt": "tsx src/db/encrypt-webhook-secrets.ts"
