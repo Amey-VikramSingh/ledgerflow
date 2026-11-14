@@ -1,5 +1,3 @@
-/* eslint-disable camelcase */
-
 /**
  * Wallets & double-entry ledger.
  *

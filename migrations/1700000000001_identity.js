@@ -1,5 +1,3 @@
-/* eslint-disable camelcase */
-
 /**
  * Identity & auth tables.
  * Order matters: tenants → users → api_keys/refresh_tokens (FK dependencies).
