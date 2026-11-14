@@ -1,5 +1,3 @@
-/* eslint-disable camelcase */
-
 /**
  * Idempotency (ingress guarantee) + transactional outbox (egress guarantee).
  *
