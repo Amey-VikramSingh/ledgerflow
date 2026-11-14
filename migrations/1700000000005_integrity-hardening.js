@@ -174,11 +174,13 @@ exports.down = (pgm) => {
     ALTER TABLE transactions DROP CONSTRAINT transactions_tenant_id_id_key;
     ALTER TABLE wallets DROP CONSTRAINT wallets_tenant_id_id_key;
 
-    -- Restoring the old "no wallet below zero" rule fails if a system wallet
-    -- is negative; that data has to be dealt with before rolling back.
+    -- System wallets are normally negative (they mirror money brought into
+    -- the system), so the old "no wallet below zero" rule is restored NOT
+    -- VALID: it applies to new and updated rows but does not fail the
+    -- rollback on existing system wallets.
     DROP INDEX uq_wallets_system;
     ALTER TABLE wallets DROP CONSTRAINT balance_non_negative;
-    ALTER TABLE wallets ADD CONSTRAINT balance_non_negative CHECK (balance >= 0);
+    ALTER TABLE wallets ADD CONSTRAINT balance_non_negative CHECK (balance >= 0) NOT VALID;
     ALTER TABLE wallets DROP COLUMN kind;
 
     ALTER TABLE wallets DROP CONSTRAINT wallets_currency_check;
