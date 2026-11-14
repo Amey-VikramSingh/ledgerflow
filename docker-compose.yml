@@ -28,37 +28,47 @@ services:
   # The API is optional in local dev — most days you'll run `npm run dev` on the
   # host and only bring up the dependencies:
   #     docker compose up postgres redis
-  # Enable this service (profile "app") to run everything in containers:
+  # Enable these services (profile "app") to run everything in containers:
   #     docker compose --profile app up
+  # `migrate` applies pending migrations and exits; `api` and `worker` wait for it.
+  migrate:
+    profiles: ['app']
+    build: .
+    command: ['npm', 'run', 'migrate:up']
+    environment:
+      DATABASE_URL: postgres://ledger:ledger@postgres:5432/ledgerflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     profiles: ['app']
     build: .
-    environment:
+    environment: &app-env
       NODE_ENV: development
       PORT: 3000
       DATABASE_URL: postgres://ledger:ledger@postgres:5432/ledgerflow
       REDIS_URL: redis://redis:6379
+      # Dev-only values (same as .env.example). Never use them in production —
+      # the app refuses to start with them when NODE_ENV=production.
+      JWT_SECRET: dev-only-change-me-to-a-long-random-string-min-32-chars
+      SECRETS_ENCRYPTION_KEY: bGVkZ2VyZmxvdy1kZXYtb25seS1rZXktMzJieXRlcyE=
     ports:
       - '3000:3000'
-    depends_on:
+    depends_on: &app-deps
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   worker:
     profiles: ['app']
     build: .
     command: ['node', 'dist/worker.js']
-    environment:
-      NODE_ENV: development
-      DATABASE_URL: postgres://ledger:ledger@postgres:5432/ledgerflow
-      REDIS_URL: redis://redis:6379
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    environment: *app-env
+    depends_on: *app-deps
 
   otel-collector:
     profiles: ['obs']

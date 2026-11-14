@@ -61,8 +61,10 @@ export async function postTransfer(
         version: string;
         currency: string;
       }>(
+        // System wallets are internal counter-accounts (see docs/schema.md);
+        // they are never a valid source or destination for a user transfer.
         `SELECT id, balance, version, currency FROM wallets
-         WHERE id = ANY($1) AND tenant_id = $2`,
+         WHERE id = ANY($1) AND tenant_id = $2 AND kind = 'user'`,
         [[input.from_wallet_id, input.to_wallet_id], tenantId],
       );
 
@@ -89,9 +91,9 @@ export async function postTransfer(
       const txId = tx.rows[0]!.id;
 
       await client.query(
-        `INSERT INTO ledger_entries (transaction_id, wallet_id, direction, amount)
-         VALUES ($1, $2, 'debit', $3), ($1, $4, 'credit', $3)`,
-        [txId, from.id, input.amount, to.id],
+        `INSERT INTO ledger_entries (tenant_id, transaction_id, wallet_id, direction, amount)
+         VALUES ($5, $1, $2, 'debit', $3), ($5, $1, $4, 'credit', $3)`,
+        [txId, from.id, input.amount, to.id, tenantId],
       );
 
       // Optimistic, deadlock-safe (canonical order): update lower id first.
@@ -177,8 +179,9 @@ export async function getTransaction(tenantId: string, id: string) {
   );
   if (tx.rowCount === 0) return null;
   const entries = await pool.query(
-    `SELECT wallet_id, direction, amount FROM ledger_entries WHERE transaction_id = $1`,
-    [id],
+    `SELECT wallet_id, direction, amount FROM ledger_entries
+     WHERE transaction_id = $1 AND tenant_id = $2`,
+    [id, tenantId],
   );
   return { ...tx.rows[0], entries: entries.rows };
 }

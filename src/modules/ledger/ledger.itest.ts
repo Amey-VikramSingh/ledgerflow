@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { pool } from '../../db/pool';
+import { redis } from '../../redis/client';
 import { registerOrg } from '../auth/auth.service';
 import { createWallet } from '../wallets/wallet.service';
 import { postTransfer } from './ledger.service';
@@ -32,7 +33,9 @@ before(async () => {
 });
 
 after(async () => {
-  await pool.end();
+  // postTransfer touches the Redis cache, so close Redis too — otherwise the
+  // open connection keeps the test process alive and the run never finishes.
+  await Promise.all([pool.end(), redis.quit()]);
 });
 
 test('a transfer is double-entry (entries sum to zero)', async () => {

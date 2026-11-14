@@ -7,8 +7,8 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 20, cache: npm }
       - run: npm ci
       - run: npm run typecheck
@@ -34,19 +34,28 @@ jobs:
       DATABASE_URL: postgres://ledger:ledger@localhost:5432/ledgerflow
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-secret-that-is-definitely-long-enough-32chars
+      SECRETS_ENCRYPTION_KEY: bGVkZ2VyZmxvdy1kZXYtb25seS1rZXktMzJieXRlcyE=
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 20, cache: npm }
       - run: npm ci
       - run: npm run migrate:up
       - run: npm run test:integration
+      # The seed must be idempotent, and every migration must roll back
+      # cleanly even with data in the tables, then re-apply.
+      - name: Seed (twice)
+        run: npm run seed && npm run seed
+      - name: Migrations down (all)
+        run: npm run migrate:down -- 0
+      - name: Migrations up again
+        run: npm run migrate:up
 
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 20, cache: npm }
       - run: npm ci
       - run: npm audit --omit=dev --audit-level=high
@@ -55,11 +64,13 @@ jobs:
     needs: [quality, integration, security]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 20, cache: npm }
       - run: npm ci
       - run: npm run build
+      # The image must build too (it is what Fly.io deploys).
+      - run: docker build -t ledgerflow:ci .
 
   # Uncomment once FLY_API_TOKEN is set in repo secrets.
   # deploy:
@@ -67,7 +78,7 @@ jobs:
   #   if: github.ref == 'refs/heads/main'
   #   runs-on: ubuntu-latest
   #   steps:
-  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v7
   #     - uses: superfly/flyctl-actions/setup-flyctl@master
   #     - run: flyctl deploy --remote-only
   #       env: { FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }} }
