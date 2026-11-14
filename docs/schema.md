@@ -7,7 +7,7 @@ All money is `BIGINT` **minor units** (paise/cents). Never float. All timestamps
 | Table | Purpose | Key design point |
 |---|---|---|
 | `tenants` | multi-tenant root | everything scopes to a tenant |
-| `users` | dashboard identity | `UNIQUE(tenant_id, email)` — email unique *within* a tenant |
+| `users` | dashboard identity | email unique across **all** tenants (`users_email_unique`), because login identifies a user by email alone |
 | `api_keys` | programmatic auth | store `sha256(key)`, never the raw key |
 | `refresh_tokens` | session rotation | `family_id` + `rotated` enable reuse detection (Day 4) |
 | `wallets` | balance holder | `version` = optimistic lock; `balance` = cached ledger projection; `kind` = `user` \| `system` |
@@ -47,7 +47,7 @@ Not enforced by the database (application responsibility): that both sides of a 
 - **Outbox rows can be pruned.** `webhook_deliveries.event_id` has no foreign key, so a retention job can delete old published `outbox_events`. Only prune events whose deliveries are finished: the worker reads the payload from `outbox_events`.
 
 ## Migration order
-`extensions → identity → ledger → idempotency+outbox → webhooks → outbox trace context → integrity hardening`
+`extensions → identity → ledger → idempotency+outbox → webhooks → outbox trace context → integrity hardening → unique user email`
 (FK dependencies: users→tenants, refresh_tokens→users, ledger→wallets/tenants, deliveries→endpoints.)
 
 ## Run
