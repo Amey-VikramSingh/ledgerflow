@@ -1,3 +1,5 @@
+/* eslint-disable camelcase */
+
 /**
  * Day 1 migration: enable extensions the schema will need on Day 2.
  *  - pgcrypto → gen_random_uuid() for UUID primary keys
