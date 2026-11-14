@@ -28,19 +28,8 @@ services:
   # The API is optional in local dev — most days you'll run `npm run dev` on the
   # host and only bring up the dependencies:
   #     docker compose up postgres redis
-  # Enable these services (profile "app") to run everything in containers:
+  # Enable this service (profile "app") to run everything in containers:
   #     docker compose --profile app up
-  # `migrate` applies pending migrations and exits; `api` waits for it.
-  migrate:
-    profiles: ['app']
-    build: .
-    command: ['npm', 'run', 'migrate:up']
-    environment:
-      DATABASE_URL: postgres://ledger:ledger@postgres:5432/ledgerflow
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   api:
     profiles: ['app']
     build: .
@@ -49,8 +38,6 @@ services:
       PORT: 3000
       DATABASE_URL: postgres://ledger:ledger@postgres:5432/ledgerflow
       REDIS_URL: redis://redis:6379
-      # Dev-only key (same as .env.example). Never use it in production.
-      SECRETS_ENCRYPTION_KEY: bGVkZ2VyZmxvdy1kZXYtb25seS1rZXktMzJieXRlcyE=
     ports:
       - '3000:3000'
     depends_on:
@@ -58,8 +45,49 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
+
+  worker:
+    profiles: ['app']
+    build: .
+    command: ['node', 'dist/worker.js']
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://ledger:ledger@postgres:5432/ledgerflow
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  otel-collector:
+    profiles: ['obs']
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ['--config=/etc/otel/config.yaml']
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otel/config.yaml
+    ports:
+      - '4318:4318'
+      - '4317:4317'
+
+  prometheus:
+    profiles: ['obs']
+    image: prom/prometheus:latest
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - '9090:9090'
+
+  grafana:
+    profiles: ['obs']
+    image: grafana/grafana:latest
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - '3001:3000'
 
 volumes:
   pgdata:

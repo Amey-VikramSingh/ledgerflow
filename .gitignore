@@ -4,4 +4,8 @@ dist/
 *.log
 npm-debug.log*
 .DS_Store
+
+# Local env files hold real secrets; only the example is committed
+.env.*
+!.env.example
 coverage/

@@ -1,42 +1,80 @@
 import express, { type Express } from 'express';
 import helmet from 'helmet';
+import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import pinoHttp from 'pino-http';
+import swaggerUi from 'swagger-ui-express';
+import yaml from 'js-yaml';
+import { config } from './config';
 import { logger } from './telemetry/logger';
+import { httpMetrics, metricsHandler } from './telemetry/metrics';
+import { rateLimit } from './middleware/ratelimit';
 import { healthRouter } from './modules/health/health.routes';
+import { authRouter } from './modules/auth/auth.routes';
+import { walletRouter } from './modules/wallets/wallet.routes';
+import { ledgerRouter } from './modules/ledger/ledger.routes';
+import { webhookRouter } from './modules/webhooks/webhook.routes';
 import { errorHandler, notFoundHandler } from './middleware/error';
-import { resolveRequestId } from './shared/request-id';
 
-/**
- * App factory. Kept separate from server.ts so tests can import the app
- * without binding a port.
- */
 export function createApp(): Express {
   const app = express();
 
-  // Security headers.
-  app.use(helmet());
+  // Behind a load balancer (ALB) — trust the proxy for correct req.ip.
+  app.set('trust proxy', 1);
 
-  // Attach a request id and structured request logging. This runs BEFORE body
-  // parsing so that a request rejected by the parser (malformed JSON, body too
-  // large) is still logged and still gets a request id in its error envelope.
+  app.use(helmet());
+  app.use(express.json({ limit: '1mb' }));
+  app.use(httpMetrics);
+
   app.use(
     pinoHttp({
       logger,
       genReqId: (req, res) => {
-        const id = resolveRequestId(req.headers['x-request-id']);
+        const id = (req.headers['x-request-id'] as string) ?? randomUUID();
         res.setHeader('x-request-id', id);
         return id;
       },
     }),
   );
 
-  // JSON body parsing with a sane limit.
-  app.use(express.json({ limit: '1mb' }));
+  // Global per-IP rate limit.
+  app.use(
+    rateLimit({
+      points: config.RATE_LIMIT_POINTS,
+      durationSec: config.RATE_LIMIT_DURATION_SEC,
+      prefix: 'global',
+      by: 'ip',
+    }),
+  );
 
-  // Routes.
+  // Operational endpoints (no rate limit needed).
   app.use('/health', healthRouter);
+  app.get('/metrics', metricsHandler);
 
-  // 404 + centralized error handling (must be last).
+  // API docs.
+  const openapi = yaml.load(
+    readFileSync(path.join(process.cwd(), 'openapi.yaml'), 'utf8'),
+  ) as swaggerUi.JsonObject;
+  app.get('/openapi.json', (_req, res) => res.json(openapi));
+  app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));
+
+  // Auth routes get a stricter per-IP limit.
+  app.use(
+    '/auth',
+    rateLimit({
+      points: config.AUTH_RATE_LIMIT_POINTS,
+      durationSec: config.AUTH_RATE_LIMIT_DURATION_SEC,
+      prefix: 'auth',
+      by: 'ip',
+    }),
+    authRouter,
+  );
+
+  app.use('/v1/wallets', walletRouter);
+  app.use('/v1/transactions', ledgerRouter);
+  app.use('/v1/webhook-endpoints', webhookRouter);
+
   app.use(notFoundHandler);
   app.use(errorHandler);
 

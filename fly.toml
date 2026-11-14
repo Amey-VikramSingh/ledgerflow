@@ -1,0 +1,36 @@
+# Fly.io deploy. Two process groups from one image: web (API) + worker.
+# Provision managed deps once:
+#   fly postgres create   # sets DATABASE_URL secret
+#   # Upstash Redis (fly ext) or any managed Redis -> set REDIS_URL
+#   fly secrets set JWT_SECRET=$(openssl rand -base64 48)
+# Run migrations as a release step (below), then: fly deploy
+app = "ledgerflow"
+primary_region = "bom"   # Mumbai
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  release_command = "npm run migrate:up"
+
+[processes]
+  web = "node dist/server.js"
+  worker = "node dist/worker.js"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["web"]
+
+  [http_service.checks]
+    [[http_service.checks.http]]
+      path = "/health/ready"
+      interval = "10s"
+      timeout = "2s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
