@@ -165,7 +165,7 @@ All money values are stored as **`BIGINT` minor units** (paise/cents) — never 
 | Table | Purpose |
 |-------|---------|
 | `tenants` | Multi-tenant root — everything scopes to a tenant |
-| `users` | Dashboard identity with `UNIQUE(tenant_id, email)` |
+| `users` | Dashboard identity; email is unique across all tenants (login is by email alone) |
 | `api_keys` | Programmatic auth — stores `sha256(key)`, never the raw key |
 | `refresh_tokens` | Session rotation with `family_id` for reuse detection |
 | `wallets` | Balance holder with `version` for optimistic locking; `kind` = `user` \| `system` (internal counter-account) |
@@ -183,7 +183,7 @@ npm run migrate:up     # Apply all migrations
 npm run migrate:down   # Roll back the latest migration
 ```
 
-Migration order: `extensions → identity → ledger → idempotency+outbox → webhooks → outbox trace context → integrity hardening`
+Migration order: `extensions → identity → ledger → idempotency+outbox → webhooks → outbox trace context → integrity hardening → unique user email`
 
 **Upgrading a database created before `1700000000006_integrity-hardening`:** that migration starts storing webhook signing secrets encrypted, but it can't encrypt existing ones (the key isn't in the database). Run this once afterwards, or deliveries to existing endpoints will fail:
 
