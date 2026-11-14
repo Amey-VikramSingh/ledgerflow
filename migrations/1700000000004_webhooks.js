@@ -1,10 +1,11 @@
+/* eslint-disable camelcase */
+
 /**
  * Webhook delivery tables.
  *  - webhook_endpoints: per-tenant destinations with an HMAC signing secret.
  *  - webhook_deliveries: UNIQUE(event_id, endpoint_id) makes redelivery
- *    idempotent on OUR side — a retried relay can't create duplicate delivery
- *    rows. The HTTP delivery itself is still at-least-once; receivers must
- *    deduplicate by event id (see docs/schema.md).
+ *    idempotent — a retried relay can't create duplicate delivery rows,
+ *    giving exactly-once delivery per endpoint on top of at-least-once queues.
  */
 
 exports.up = (pgm) => {

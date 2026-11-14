@@ -1,3 +1,4 @@
+import './telemetry/otel'; // must be first — patches libraries on load
 import { createApp } from './app';
 import { config } from './config';
 import { logger } from './telemetry/logger';
