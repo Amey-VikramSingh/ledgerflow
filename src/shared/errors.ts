@@ -31,3 +31,27 @@ export class UnauthorizedError extends AppError {
     super(401, 'unauthorized', message);
   }
 }
+
+export class ForbiddenError extends AppError {
+  constructor(message = 'Forbidden') {
+    super(403, 'forbidden', message);
+  }
+}
+
+export class ConflictError extends AppError {
+  constructor(message = 'Resource already exists') {
+    super(409, 'conflict', message);
+  }
+}
+
+export class InsufficientFundsError extends AppError {
+  constructor(message = 'Insufficient funds') {
+    super(422, 'insufficient_funds', message);
+  }
+}
+
+export class TooManyRequestsError extends AppError {
+  constructor(message = 'Rate limit exceeded') {
+    super(429, 'rate_limited', message);
+  }
+}

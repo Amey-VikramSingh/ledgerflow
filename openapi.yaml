@@ -1,0 +1,171 @@
+openapi: 3.0.3
+info:
+  title: LedgerFlow API
+  version: 1.0.0
+  description: >
+    Multi-tenant wallet/ledger API with idempotent transactions and reliable
+    webhook delivery.
+servers:
+  - url: http://localhost:3000
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            type: { type: string }
+            message: { type: string }
+            request_id: { type: string }
+    TokenPair:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        token_type: { type: string, example: Bearer }
+        expires_in: { type: integer, example: 900 }
+    Wallet:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        currency: { type: string, example: INR }
+        balance: { type: string, description: minor units (paise) }
+        version: { type: string }
+paths:
+  /auth/register:
+    post:
+      summary: Register an organization (creates tenant + owner)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, orgName]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                orgName: { type: string }
+      responses:
+        '201': { description: Created }
+        '409': { description: Email already registered }
+  /auth/login:
+    post:
+      summary: Log in and receive an access + refresh token pair
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { description: Invalid credentials }
+  /auth/refresh:
+    post:
+      summary: Rotate a refresh token (reuse is detected and revokes the family)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200': { description: New token pair }
+        '401': { description: Invalid / expired / reused token }
+  /v1/wallets:
+    post:
+      summary: Create a wallet
+      security: [{ bearerAuth: [] }, { apiKey: [] }]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Wallet' }
+    get:
+      summary: List wallets (cursor-paginated)
+      security: [{ bearerAuth: [] }, { apiKey: [] }]
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, default: 20 } }
+        - { in: query, name: cursor, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+  /v1/wallets/{id}:
+    get:
+      summary: Get a wallet (cached)
+      security: [{ bearerAuth: [] }, { apiKey: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+  /v1/transactions:
+    post:
+      summary: Post a transfer (idempotent, double-entry)
+      security: [{ bearerAuth: [] }, { apiKey: [] }]
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_wallet_id, to_wallet_id, amount]
+              properties:
+                from_wallet_id: { type: string, format: uuid }
+                to_wallet_id: { type: string, format: uuid }
+                amount: { type: integer, description: minor units, minimum: 1 }
+                metadata: { type: object }
+      responses:
+        '201': { description: Posted }
+        '409': { description: Idempotency key in progress / concurrency conflict }
+        '422': { description: Insufficient funds or key reused with different body }
+    get:
+      summary: List transactions (cursor-paginated, filterable)
+      security: [{ bearerAuth: [] }, { apiKey: [] }]
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, default: 20 } }
+        - { in: query, name: cursor, schema: { type: string } }
+        - { in: query, name: type, schema: { type: string } }
+        - { in: query, name: from_date, schema: { type: string, format: date-time } }
+        - { in: query, name: to_date, schema: { type: string, format: date-time } }
+      responses:
+        '200': { description: OK }
+  /v1/webhook-endpoints:
+    post:
+      summary: Register a webhook endpoint (returns signing secret once)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201': { description: Created }
+  /health/ready:
+    get:
+      summary: Readiness probe (checks Postgres + Redis)
+      responses:
+        '200': { description: Ready }
+        '503': { description: Degraded }

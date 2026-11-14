@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { AppError } from '../shared/errors';
+import { classifyClientError } from '../shared/http-errors';
 import { logger } from '../telemetry/logger';
 
 /**
@@ -16,40 +17,6 @@ export function notFoundHandler(req: Request, res: Response): void {
     },
   });
 }
-
-/**
- * Errors raised by Express/body-parser for a bad request (malformed JSON,
- * oversized body, unsupported encoding…). They carry a 4xx status and
- * `expose: true`; they are the client's fault, not an internal error.
- */
-interface HttpClientError {
-  status: number;
-  type?: string;
-}
-
-function asHttpClientError(err: unknown): HttpClientError | null {
-  if (typeof err !== 'object' || err === null) return null;
-  const candidate = err as {
-    status?: unknown;
-    statusCode?: unknown;
-    expose?: unknown;
-    type?: unknown;
-  };
-  const status = candidate.status ?? candidate.statusCode;
-  if (typeof status !== 'number' || status < 400 || status > 499) return null;
-  if (candidate.expose !== true) return null;
-  return { status, type: typeof candidate.type === 'string' ? candidate.type : undefined };
-}
-
-const CLIENT_ERROR_ENVELOPES: Record<string, { type: string; message: string }> = {
-  'entity.parse.failed': { type: 'invalid_json', message: 'Request body is not valid JSON' },
-  'entity.too.large': { type: 'payload_too_large', message: 'Request body is too large' },
-};
-
-const GENERIC_CLIENT_ERROR = {
-  type: 'bad_request',
-  message: 'The request could not be processed',
-};
 
 export function errorHandler(
   err: unknown,
@@ -71,13 +38,11 @@ export function errorHandler(
     return;
   }
 
-  const clientError = asHttpClientError(err);
+  // Malformed JSON, oversized body, etc. — a 4xx, not an internal error.
+  const clientError = classifyClientError(err);
   if (clientError) {
-    const envelope =
-      (clientError.type ? CLIENT_ERROR_ENVELOPES[clientError.type] : undefined) ??
-      GENERIC_CLIENT_ERROR;
     res.status(clientError.status).json({
-      error: { ...envelope, request_id: req.id },
+      error: { type: clientError.type, message: clientError.message, request_id: req.id },
     });
     return;
   }

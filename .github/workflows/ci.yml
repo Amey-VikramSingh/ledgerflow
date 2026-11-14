@@ -1,52 +1,84 @@
-name: CI
-
+name: ci
 on:
-  push:
-    branches: [main]
-  pull_request:
+  push: { branches: [main] }
+  pull_request: {}
 
 jobs:
-  check:
+  quality:
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: ledger
-          POSTGRES_PASSWORD: ledger
-          POSTGRES_DB: ledgerflow
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ledger -d ledgerflow"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
-
-    env:
-      DATABASE_URL: postgres://ledger:ledger@localhost:5432/ledgerflow
-      REDIS_URL: redis://localhost:6379
-      SECRETS_ENCRYPTION_KEY: bGVkZ2VyZmxvdy1kZXYtb25seS1rZXktMzJieXRlcyE=
-
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
-        with:
-          node-version: 20
-          cache: npm
+        with: { node-version: 22, cache: npm }
       - run: npm ci
-      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
 
-      # Migrations must apply cleanly, roll all the way back, and re-apply.
-      - name: Migrations up
-        run: npm run migrate:up
-      - name: Seed (twice — must be idempotent)
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: ledger, POSTGRES_PASSWORD: ledger, POSTGRES_DB: ledgerflow }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ledger" --health-interval 5s
+          --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgres://ledger:ledger@localhost:5432/ledgerflow
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-secret-that-is-definitely-long-enough-32chars
+      SECRETS_ENCRYPTION_KEY: bGVkZ2VyZmxvdy1kZXYtb25seS1rZXktMzJieXRlcyE=
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run migrate:up
+      - run: npm run test:integration
+      # The seed must be idempotent, and every migration must roll back
+      # cleanly even with data in the tables, then re-apply.
+      - name: Seed (twice)
         run: npm run seed && npm run seed
       - name: Migrations down (all)
         run: npm run migrate:down -- 0
       - name: Migrations up again
         run: npm run migrate:up
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+
+  build:
+    needs: [quality, integration, security]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run build
+      # The image must build too (it is what Fly.io deploys).
+      - run: docker build -t ledgerflow:ci .
+
+  # Uncomment once FLY_API_TOKEN is set in repo secrets.
+  # deploy:
+  #   needs: [build]
+  #   if: github.ref == 'refs/heads/main'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v7
+  #     - uses: superfly/flyctl-actions/setup-flyctl@master
+  #     - run: flyctl deploy --remote-only
+  #       env: { FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }} }

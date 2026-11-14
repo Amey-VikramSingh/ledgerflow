@@ -1,12 +1,12 @@
 import { pool } from './pool';
 import { logger } from '../telemetry/logger';
-import { encryptSecret } from '../shared/secret-box';
+import { secretBox } from '../shared/secrets';
 
 /**
  * Dev seed. Fixed UUIDs + ON CONFLICT → safe to run repeatedly.
- * The user's password_hash is a placeholder; Day 3 replaces it with a real
- * argon2id hash via the register endpoint. This exists so Day 3+ has data
- * to query and the FK graph is exercised end to end.
+ * The user's password_hash is a placeholder (not a valid argon2 hash), so
+ * this user can't log in — register through /auth/register for that.
+ * This exists so there is data to query and the FK graph is exercised.
  *
  * The opening balance is a real double-entry transaction (credit the user
  * wallet, debit the tenant's system wallet), so the ledger invariant
@@ -37,7 +37,7 @@ async function seed(): Promise<void> {
       `INSERT INTO users (id, tenant_id, email, password_hash, role, email_verified)
        VALUES ($1, $2, $3, $4, 'owner', true)
        ON CONFLICT (id) DO NOTHING`,
-      [USER, TENANT, 'owner@acme.test', 'SEED_PLACEHOLDER_replaced_on_day3'],
+      [USER, TENANT, 'owner@acme.test', 'SEED_PLACEHOLDER_not_a_real_hash'],
     );
 
     await client.query(
@@ -80,7 +80,7 @@ async function seed(): Promise<void> {
       `INSERT INTO webhook_endpoints (id, tenant_id, url, secret_ciphertext)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (id) DO UPDATE SET secret_ciphertext = EXCLUDED.secret_ciphertext`,
-      [ENDPOINT, TENANT, 'https://webhook.site/replace-me', encryptSecret('whsec_seed_secret')],
+      [ENDPOINT, TENANT, 'https://webhook.site/replace-me', secretBox.encrypt('whsec_seed_secret')],
     );
 
     await client.query('COMMIT');

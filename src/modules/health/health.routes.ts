@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { asyncHandler } from '../../shared/async-handler';
+import { asyncHandler } from '../../shared/http';
 import { live, ready } from './health.controller';
 
 export const healthRouter = Router();
