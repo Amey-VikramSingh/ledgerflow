@@ -349,6 +349,9 @@ See [`.env.example`](.env.example) for all configuration options. Key variables:
 | `JWT_SECRET` | ✅ | — | Signing key for access tokens (min 32 chars). The `.env.example` value is rejected in production |
 | `SECRETS_ENCRYPTION_KEY` | ✅ | — | 32-byte base64 key encrypting webhook secrets at rest. The `.env.example` value is rejected in production |
 | `PORT` | | `3000` | API server port |
+| `TRUST_PROXY_HOPS` | | `1` | Reverse proxies in front of the app, so per-IP rate limits see the real client (Render: `2`) |
+| `METRICS_TOKEN` | | — | Bearer token for `/metrics`; in production `/metrics` returns 404 unless set |
+| `WEBHOOK_ALLOW_PRIVATE_URLS` | | `false` in production | Allow webhooks to private/internal addresses (local dev only; enabling in production allows SSRF) |
 | `OTEL_ENABLED` | | `false` | Enable OpenTelemetry tracing |
 | `WEBHOOK_MAX_ATTEMPTS` | | `8` | Max webhook delivery retries |
 | `RATE_LIMIT_POINTS` | | `100` | Global rate limit (requests per window) |

@@ -39,13 +39,16 @@ export function signAccessToken(user: {
     role: user.role,
   };
   return jwt.sign(payload, config.JWT_SECRET, {
+    algorithm: 'HS256',
     expiresIn: config.ACCESS_TOKEN_TTL_SECONDS,
   });
 }
 
 /** Verify an access token; throws if invalid/expired. */
 export function verifyAccessToken(token: string): AccessPayload {
-  return jwt.verify(token, config.JWT_SECRET) as AccessPayload;
+  // Pin the algorithm: accept only what we sign with, never a token that
+  // names a different one (e.g. "none" or an asymmetric alg).
+  return jwt.verify(token, config.JWT_SECRET, { algorithms: ['HS256'] }) as AccessPayload;
 }
 
 /** Postgres unique_violation on the global email index. */

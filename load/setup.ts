@@ -10,6 +10,7 @@ import { pool } from '../src/db/pool';
 import { registerOrg } from '../src/modules/auth/auth.service';
 import { createApiKey } from '../src/modules/auth/apikey.service';
 import { createWallet } from '../src/modules/wallets/wallet.service';
+import { permissionsForRole } from '../src/modules/auth/rbac';
 
 async function main() {
   const org = await registerOrg({
@@ -17,7 +18,8 @@ async function main() {
     password: 'supersecret123',
     orgName: 'LoadCo',
   });
-  const key = await createApiKey(org.tenant_id, 'load', ['transaction:write', 'wallet:read']);
+  // The org's owner is the creator, so the key may carry any owner permission.
+  const key = await createApiKey(org.tenant_id, 'load', ['transaction:write', 'wallet:read'], permissionsForRole('owner'));
 
   const froms: string[] = [];
   for (let i = 0; i < 10; i++) {
