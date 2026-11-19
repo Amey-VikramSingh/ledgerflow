@@ -7,7 +7,7 @@ import swaggerUi from 'swagger-ui-express';
 import yaml from 'js-yaml';
 import { config } from './config';
 import { logger } from './telemetry/logger';
-import { httpMetrics, metricsHandler } from './telemetry/metrics';
+import { httpMetrics, metricsGuard, metricsHandler } from './telemetry/metrics';
 import { rateLimit } from './middleware/ratelimit';
 import { healthRouter } from './modules/health/health.routes';
 import { authRouter } from './modules/auth/auth.routes';
@@ -20,8 +20,10 @@ import { resolveRequestId } from './shared/request-id';
 export function createApp(): Express {
   const app = express();
 
-  // Behind a load balancer (ALB) — trust the proxy for correct req.ip.
-  app.set('trust proxy', 1);
+  // req.ip must be the real client, not a proxy, or per-IP rate limits key on
+  // the proxy (shared by everyone) and a forged X-Forwarded-For can't be told
+  // apart. Trust exactly as many hops as the platform adds (TRUST_PROXY_HOPS).
+  app.set('trust proxy', config.TRUST_PROXY_HOPS);
 
   app.use(helmet());
   app.use(httpMetrics);
@@ -43,6 +45,11 @@ export function createApp(): Express {
 
   app.use(express.json({ limit: '1mb' }));
 
+  // Operational endpoints: before the rate limiter, so platform health checks
+  // and metrics scrapes never consume (or exhaust) a client's budget.
+  app.use('/health', healthRouter);
+  app.get('/metrics', metricsGuard, metricsHandler);
+
   // Global per-IP rate limit.
   app.use(
     rateLimit({
@@ -52,10 +59,6 @@ export function createApp(): Express {
       by: 'ip',
     }),
   );
-
-  // Operational endpoints (no rate limit needed).
-  app.use('/health', healthRouter);
-  app.get('/metrics', metricsHandler);
 
   // API docs.
   const openapi = yaml.load(
