@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { isAuthed } from '@/lib/session';
 
-export default function Home() {
-  redirect(isAuthed() ? '/overview' : '/login');
+export default async function Home() {
+  redirect((await isAuthed()) ? '/overview' : '/login');
 }
