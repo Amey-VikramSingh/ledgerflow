@@ -53,6 +53,16 @@ const EnvSchema = z.object({
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
   WEBHOOK_MAX_ATTEMPTS: z.coerce.number().int().positive().default(8),
   WEBHOOK_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  // Allow webhook URLs that resolve to private/internal addresses (localhost,
+  // 10.x, 169.254.x, ...). Unset means: allowed outside production only.
+  // Never enable in production: it lets any tenant make the worker send
+  // requests into your internal network (SSRF).
+  WEBHOOK_ALLOW_PRIVATE_URLS: z.enum(['true', 'false']).optional(),
+
+  // How many reverse proxies sit in front of the app, so req.ip is the real
+  // client and not a proxy. Render: 2 (edge + load balancer). Fly.io / a
+  // single load balancer: 1. 0 when the app is reached directly.
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(1),
 
   // Rate limiting (token bucket)
   RATE_LIMIT_POINTS: z.coerce.number().int().positive().default(100),
@@ -71,6 +81,10 @@ const EnvSchema = z.object({
   OTEL_SERVICE_NAME: z.string().default('ledgerflow'),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().default('http://localhost:4318'),
   METRICS_PORT: z.coerce.number().int().positive().default(9100),
+  // Bearer token required to read the API's /metrics. In production, /metrics
+  // is disabled (404) unless this is set; elsewhere it is open for local
+  // Prometheus.
+  METRICS_TOKEN: z.string().min(16).optional(),
 })
   .refine((env) => env.NODE_ENV !== 'production' || env.JWT_SECRET !== DEV_ONLY_JWT_SECRET, {
     path: ['JWT_SECRET'],

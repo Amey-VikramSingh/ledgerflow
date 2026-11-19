@@ -5,7 +5,7 @@ import { NotFoundError, UnauthorizedError } from '../../shared/errors';
 export async function createApiKeyHandler(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const { name, scopes } = req.body;
-  const key = await createApiKey(req.user.tenantId, name, scopes);
+  const key = await createApiKey(req.user.tenantId, name, scopes, req.user.permissions);
   // The raw api_key is returned ONCE. Warn the caller it won't be shown again.
   res.status(201).json({ ...key, message: 'Store this key now — it will not be shown again.' });
 }

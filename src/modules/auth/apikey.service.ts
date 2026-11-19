@@ -1,7 +1,7 @@
 import { pool } from '../../db/pool';
 import { sha256, randomToken } from '../../shared/crypto';
 import { isValidPermission, type Permission } from './rbac';
-import { ValidationError } from '../../shared/errors';
+import { ForbiddenError, ValidationError } from '../../shared/errors';
 
 /**
  * API keys authenticate programmatic clients. We store only sha256(key); the
@@ -17,14 +17,24 @@ export interface CreatedApiKey {
   api_key: string; // raw — shown once
 }
 
+/**
+ * A key may only carry permissions its creator already has: an admin must not
+ * be able to mint an owner-level key, and a key with apikey:manage must not be
+ * able to mint a more powerful key than itself.
+ */
 export async function createApiKey(
   tenantId: string,
   name: string,
   scopes: string[],
+  creatorPermissions: readonly string[],
 ): Promise<CreatedApiKey> {
   const invalid = scopes.filter((s) => !isValidPermission(s));
   if (invalid.length > 0) {
     throw new ValidationError(`invalid scopes: ${invalid.join(', ')}`);
+  }
+  const exceeding = scopes.filter((s) => !creatorPermissions.includes(s));
+  if (exceeding.length > 0) {
+    throw new ForbiddenError(`cannot grant scopes you do not have: ${exceeding.join(', ')}`);
   }
 
   const raw = `lk_live_${randomToken(24)}`;

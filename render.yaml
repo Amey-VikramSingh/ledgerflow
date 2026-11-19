@@ -37,6 +37,10 @@ services:
         generateValue: true
       - key: OTEL_ENABLED
         value: "false"
+      # Render adds two proxy hops (edge + load balancer) in front of the app;
+      # trusting exactly two makes req.ip the real client for rate limiting.
+      - key: TRUST_PROXY_HOPS
+        value: "2"
 
   - type: keyvalue
     name: ledgerflow-redis

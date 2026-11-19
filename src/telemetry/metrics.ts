@@ -1,6 +1,8 @@
 import client from 'prom-client';
 import type { Request, Response, NextFunction } from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import { pool } from '../db/pool';
+import { config } from '../config';
 
 export const registry = new client.Registry();
 client.collectDefaultMetrics({ register: registry, prefix: 'ledgerflow_' });
@@ -45,6 +47,34 @@ export function httpMetrics(req: Request, res: Response, next: NextFunction): vo
     const route = req.route?.path ?? req.baseUrl ?? req.path;
     end({ method: req.method, route, status: res.statusCode });
   });
+  next();
+}
+
+/**
+ * /metrics exposes internals (memory, per-route traffic, outbox lag), so:
+ *  - METRICS_TOKEN set  → requires `Authorization: Bearer <METRICS_TOKEN>`
+ *  - unset, production  → disabled (404, indistinguishable from no route)
+ *  - unset, elsewhere   → open, for the local Prometheus in docker compose
+ */
+export function metricsGuard(req: Request, res: Response, next: NextFunction): void {
+  const token = config.METRICS_TOKEN;
+  if (token) {
+    const given = req.headers.authorization ?? '';
+    const expected = `Bearer ${token}`;
+    const ok =
+      given.length === expected.length &&
+      timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+    if (!ok) {
+      res.status(401).json({ error: { type: 'unauthorized', message: 'metrics token required' } });
+      return;
+    }
+    next();
+    return;
+  }
+  if (config.NODE_ENV === 'production') {
+    next('route'); // fall through to the 404 handler
+    return;
+  }
   next();
 }
 
