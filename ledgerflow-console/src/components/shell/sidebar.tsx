@@ -4,13 +4,15 @@ import { usePathname } from 'next/navigation';
 import { LayoutGrid, Wallet, ArrowLeftRight, Webhook, KeyRound, Activity } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
+// `soon` items have no page yet: they're shown (so the roadmap is visible)
+// but not linked, so visitors never land on a 404.
 const NAV = [
   { href: '/overview', label: 'Overview', icon: LayoutGrid },
   { href: '/wallets', label: 'Wallets', icon: Wallet },
-  { href: '/transactions', label: 'Transactions', icon: ArrowLeftRight },
-  { href: '/webhooks', label: 'Webhooks', icon: Webhook },
-  { href: '/api-keys', label: 'API keys', icon: KeyRound },
-  { href: '/demo', label: 'Live demo', icon: Activity, accent: true },
+  { href: '/transactions', label: 'Transactions', icon: ArrowLeftRight, soon: true },
+  { href: '/webhooks', label: 'Webhooks', icon: Webhook, soon: true },
+  { href: '/api-keys', label: 'API keys', icon: KeyRound, soon: true },
+  { href: '/demo', label: 'Live demo', icon: Activity, accent: true, soon: true },
 ];
 
 export function Sidebar() {
@@ -22,7 +24,21 @@ export function Sidebar() {
         <span className="font-display text-base font-semibold tracking-tight">LedgerFlow</span>
       </div>
       <nav className="flex-1 space-y-0.5 px-3">
-        {NAV.map(({ href, label, icon: Icon, accent }) => {
+        {NAV.map(({ href, label, icon: Icon, accent, soon }) => {
+          if (soon) {
+            return (
+              <span
+                key={href}
+                aria-disabled="true"
+                title="Not built yet"
+                className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-sm text-fg-faint"
+              >
+                <Icon className="h-4 w-4" strokeWidth={1.75} />
+                {label}
+                <span className="ml-auto rounded bg-ink-700 px-1.5 py-0.5 font-mono text-2xs">soon</span>
+              </span>
+            );
+          }
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
             <Link

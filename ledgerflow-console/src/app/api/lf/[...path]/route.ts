@@ -9,6 +9,9 @@ import type { TokenPair } from '@/lib/types';
  * never sees an auth blip. Idempotency-Key and query strings are preserved.
  */
 export const dynamic = 'force-dynamic';
+// The API is on Render's free tier, which sleeps when idle; the first request
+// can take up to ~1 minute while it wakes. Let this handler wait that long.
+export const maxDuration = 60;
 
 async function forward(req: NextRequest, path: string[]): Promise<Response> {
   const search = req.nextUrl.search;
@@ -26,22 +29,23 @@ async function forward(req: NextRequest, path: string[]): Promise<Response> {
     return fetch(target, { method: req.method, headers: h, body, cache: 'no-store' });
   };
 
-  let upstream = await doFetch(getAccess());
+  let upstream = await doFetch(await getAccess());
 
   // Access expired → try one refresh + retry.
   let rotated: TokenPair | null = null;
-  if (upstream.status === 401 && getRefresh()) {
+  const refreshToken = await getRefresh();
+  if (upstream.status === 401 && refreshToken) {
     const r = await fetch(`${API_URL}/auth/refresh`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ refresh_token: getRefresh() }),
+      body: JSON.stringify({ refresh_token: refreshToken }),
       cache: 'no-store',
     });
     if (r.ok) {
       rotated = (await r.json()) as TokenPair;
       upstream = await doFetch(rotated.access_token);
     } else {
-      clearTokens();
+      await clearTokens();
     }
   }
 
@@ -50,11 +54,13 @@ async function forward(req: NextRequest, path: string[]): Promise<Response> {
     status: upstream.status,
     headers: { 'content-type': upstream.headers.get('content-type') ?? 'application/json' },
   });
-  if (rotated) setTokens(rotated.access_token, rotated.refresh_token);
+  if (rotated) await setTokens(rotated.access_token, rotated.refresh_token);
   return res;
 }
 
-export const GET = (req: NextRequest, ctx: { params: { path: string[] } }) => forward(req, ctx.params.path);
-export const POST = (req: NextRequest, ctx: { params: { path: string[] } }) => forward(req, ctx.params.path);
-export const PATCH = (req: NextRequest, ctx: { params: { path: string[] } }) => forward(req, ctx.params.path);
-export const DELETE = (req: NextRequest, ctx: { params: { path: string[] } }) => forward(req, ctx.params.path);
+// Route params are a Promise in Next 15+.
+type Ctx = { params: Promise<{ path: string[] }> };
+export const GET = async (req: NextRequest, ctx: Ctx) => forward(req, (await ctx.params).path);
+export const POST = async (req: NextRequest, ctx: Ctx) => forward(req, (await ctx.params).path);
+export const PATCH = async (req: NextRequest, ctx: Ctx) => forward(req, (await ctx.params).path);
+export const DELETE = async (req: NextRequest, ctx: Ctx) => forward(req, (await ctx.params).path);

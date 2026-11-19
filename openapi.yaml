@@ -6,7 +6,8 @@ info:
     Multi-tenant wallet/ledger API with idempotent transactions and reliable
     webhook delivery.
 servers:
-  - url: http://localhost:3000
+  - url: /
+    description: The server this documentation is served from
 components:
   securitySchemes:
     bearerAuth:
