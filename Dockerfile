@@ -20,6 +20,8 @@ COPY --from=build /app/dist ./dist
 COPY migrations ./migrations
 # The API reads its OpenAPI spec from the working directory at startup.
 COPY openapi.yaml ./
+# Single-container start (migrations + API + worker) for Render's free tier.
+COPY scripts ./scripts
 
 # Run as a non-root user.
 USER node

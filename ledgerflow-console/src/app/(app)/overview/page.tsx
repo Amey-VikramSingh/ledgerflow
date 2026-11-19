@@ -69,7 +69,6 @@ export default function OverviewPage() {
         <Card>
           <CardHeader>
             <CardTitle>Journal</CardTitle>
-            <Link href="/transactions" className="text-2xs text-action hover:text-action-hover">View all →</Link>
           </CardHeader>
           <CardBody className="pt-0">
             {txns.isLoading ? (
@@ -90,7 +89,7 @@ export default function OverviewPage() {
                 ))}
               </ul>
             ) : (
-              <p className="py-8 text-center text-sm text-fg-muted">No postings yet. Move money on the Transactions tab.</p>
+              <p className="py-8 text-center text-sm text-fg-muted">No postings yet. Transfers between wallets appear here.</p>
             )}
           </CardBody>
         </Card>
