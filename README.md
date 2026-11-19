@@ -4,6 +4,17 @@ Multi-tenant wallet/ledger API with **idempotent transactions**, **double-entry 
 
 Built with Node.js, TypeScript, Express, PostgreSQL, Redis, and BullMQ.
 
+## Live demo
+
+| | |
+|---|---|
+| **Console** (sign up, create wallets) | https://ledgerflow-console.vercel.app |
+| **API docs** (Swagger, try requests live) | https://ledgerflow-api-2scd.onrender.com/docs |
+| **API health** | https://ledgerflow-api-2scd.onrender.com/health/ready |
+
+Hosted on free tiers: the API sleeps after 15 minutes without traffic, so the
+first request after a quiet period can take up to a minute while it wakes.
+
 ---
 
 ## Architecture
