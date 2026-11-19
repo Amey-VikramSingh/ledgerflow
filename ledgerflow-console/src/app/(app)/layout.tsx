@@ -5,7 +5,7 @@ import { Topbar } from '@/components/shell/topbar';
 import type { User } from '@/lib/types';
 
 async function fetchMe(): Promise<User | null> {
-  const token = getAccess();
+  const token = await getAccess();
   if (!token) return null;
   const r = await fetch(`${API_URL}/auth/me`, {
     headers: { authorization: `Bearer ${token}` },
@@ -16,7 +16,7 @@ async function fetchMe(): Promise<User | null> {
 }
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  if (!isAuthed()) redirect('/login');
+  if (!(await isAuthed())) redirect('/login');
   const me = await fetchMe();
   return (
     <div className="flex min-h-screen">

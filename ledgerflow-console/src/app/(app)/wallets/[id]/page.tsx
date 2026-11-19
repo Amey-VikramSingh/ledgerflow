@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { useWallet } from '@/hooks/use-wallets';
 import { PageHeading } from '@/components/page-heading';
@@ -9,8 +10,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { CopyButton } from '@/components/ui/copy';
 import { formatRelative } from '@/lib/format';
 
-export default function WalletDetailPage({ params }: { params: { id: string } }) {
-  const wallet = useWallet(params.id);
+export default function WalletDetailPage() {
+  // Client component: read the route param with useParams (page props.params is a Promise in Next 15+).
+  const { id } = useParams<{ id: string }>();
+  const wallet = useWallet(id);
 
   return (
     <>

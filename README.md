@@ -291,7 +291,28 @@ ledgerflow/
 
 ---
 
-## Deployment (Fly.io)
+## Deployment
+
+### Free: Render (API) + Vercel (console)
+
+**API, worker, Postgres and Redis on Render.** [`render.yaml`](render.yaml) is a Render Blueprint:
+Render dashboard → **New → Blueprint** → pick this repo → **Apply**. It creates
+the Postgres database, a Key Value (Redis) instance and one web service, and
+generates `JWT_SECRET` and `SECRETS_ENCRYPTION_KEY`. Render's free tier has no
+background workers or pre-deploy step, so the web service runs
+[`scripts/start-all.sh`](scripts/start-all.sh): migrations, then the API and
+the webhook worker in one container.
+
+Free-tier limits: the service sleeps after 15 minutes idle (the next request
+takes up to ~1 minute to wake it), and the free database expires 30 days after
+creation unless upgraded.
+
+**Console on Vercel.** Import this repo in Vercel with **Root Directory**
+`ledgerflow-console` and set `LEDGERFLOW_API_URL` to the Render URL (no
+trailing slash). The console's server routes allow 60 seconds so a sleeping
+API has time to wake.
+
+### Fly.io (no sleeping; needs a card)
 
 ```bash
 fly launch --no-deploy
