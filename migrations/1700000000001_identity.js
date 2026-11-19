@@ -18,7 +18,7 @@ exports.up = (pgm) => {
       id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       tenant_id      UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
       email          CITEXT NOT NULL,                 -- case-insensitive
-      password_hash  TEXT NOT NULL,                   -- argon2id (Day 3)
+      password_hash  TEXT NOT NULL,                   -- argon2id
       role           TEXT NOT NULL DEFAULT 'member',  -- owner | admin | member | viewer
       email_verified BOOLEAN NOT NULL DEFAULT false,
       created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),

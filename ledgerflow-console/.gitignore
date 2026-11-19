@@ -3,3 +3,8 @@ node_modules
 .env.local
 next-env.d.ts
 *.tsbuildinfo
+
+# Environment files (only .env.example is committed)
+.env
+.env.*
+!.env.example

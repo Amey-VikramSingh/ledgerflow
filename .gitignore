@@ -1,11 +1,30 @@
+# Dependencies and build output
 node_modules/
 dist/
-.env
-*.log
-npm-debug.log*
-.DS_Store
+coverage/
+*.tsbuildinfo
 
-# Local env files hold real secrets; only the example is committed
+# Environment files hold real secrets; only the examples are committed
+.env
 .env.*
 !.env.example
-coverage/
+
+# Keys, certificates and credentials
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+
+# Local data, logs and load-test output
+*.log
+npm-debug.log*
+*.sqlite*
+load/fixture.json
+
+# Editor, OS and local tool settings
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/

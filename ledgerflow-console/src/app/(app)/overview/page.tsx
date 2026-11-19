@@ -65,7 +65,7 @@ export default function OverviewPage() {
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        {/* Journal tape — the signature. */}
+        {/* Journal: most recent postings. */}
         <Card>
           <CardHeader>
             <CardTitle>Journal</CardTitle>

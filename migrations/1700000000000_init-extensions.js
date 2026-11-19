@@ -1,7 +1,7 @@
 /* eslint-disable camelcase */
 
 /**
- * Day 1 migration: enable extensions the schema will need on Day 2.
+ * Enable the Postgres extensions the schema depends on.
  *  - pgcrypto → gen_random_uuid() for UUID primary keys
  *  - citext   → case-insensitive email column
  * Written in node-pg-migrate's JS API (runs without ts-node).

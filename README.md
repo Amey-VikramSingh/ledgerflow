@@ -1,363 +1,168 @@
 # LedgerFlow
 
-Multi-tenant wallet/ledger API with **idempotent transactions**, **double-entry accounting**, and **reliable webhook delivery** via a transactional outbox pattern.
+[![CI](https://github.com/Amey-VikramSingh/ledgerflow/actions/workflows/ci.yml/badge.svg)](https://github.com/Amey-VikramSingh/ledgerflow/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Built with Node.js, TypeScript, Express, PostgreSQL, Redis, and BullMQ.
+A multi-tenant wallet and ledger API: double-entry bookkeeping, idempotent
+transfers, and signed webhooks delivered through a transactional outbox.
 
-## Live demo
+**Live demo:** [console](https://ledgerflow-console.vercel.app) ·
+[API docs](https://ledgerflow-api-2scd.onrender.com/docs) ·
+[health](https://ledgerflow-api-2scd.onrender.com/health/ready)
 
-| | |
-|---|---|
-| **Console** (sign up, create wallets) | https://ledgerflow-console.vercel.app |
-| **API docs** (Swagger, try requests live) | https://ledgerflow-api-2scd.onrender.com/docs |
-| **API health** | https://ledgerflow-api-2scd.onrender.com/health/ready |
+> The demo runs on free hosting. The API sleeps after 15 minutes without
+> traffic, so the first request after a quiet period can take up to a minute.
 
-Hosted on free tiers: the API sleeps after 15 minutes without traffic, so the
-first request after a quiet period can take up to a minute while it wakes.
+## Stack
 
----
+TypeScript · Node.js · Express · PostgreSQL · Redis · BullMQ · Zod ·
+Next.js (console) · Docker · GitHub Actions · Prometheus · OpenTelemetry
+
+## Highlights
+
+- **Double-entry ledger enforced by the database.** Every transfer writes a
+  balanced pair of entries; a deferred trigger rejects any transaction that
+  doesn't sum to zero, and entries are append-only.
+- **Safe under concurrency.** Optimistic locking on wallet versions, a
+  non-negative balance constraint, and canonical lock ordering, so concurrent
+  transfers can't overdraw a wallet or deadlock.
+- **Idempotent writes.** `POST /v1/transactions` requires an
+  `Idempotency-Key`; retries return the stored response, and reusing a key with
+  a different body is rejected.
+- **Reliable webhooks.** Events are written in the same database transaction as
+  the money movement (transactional outbox), relayed with
+  `FOR UPDATE SKIP LOCKED`, and delivered by a BullMQ worker with HMAC
+  signatures, exponential backoff and a dead-letter state. Delivery is
+  at-least-once; receivers deduplicate by event id.
+- **Multi-tenant by construction.** Composite foreign keys keep every ledger
+  entry, transaction and wallet inside one tenant.
+- **Security.** Argon2id passwords, rotating refresh tokens with reuse
+  detection, scoped API keys, RBAC, per-IP rate limiting in Redis, SSRF
+  protection on webhook URLs, and webhook secrets encrypted at rest.
 
 ## Architecture
 
 ```
-┌───────────────┐      ┌──────────────────┐      ┌──────────────┐
-│   Client      │─────▶│   API Server     │─────▶│  PostgreSQL  │
-│  (HTTP/JWT/   │      │  (Express)       │      │  (16-alpine) │
-│   API Key)    │      │  Port 3000       │      └──────┬───────┘
-└───────────────┘      └──────┬───────────┘             │
-                              │                         │ outbox_events
-                              │                         ▼
-                       ┌──────▼───────────┐      ┌──────────────┐
-                       │     Redis        │◀─────│   Worker     │
-                       │  (cache + queue) │      │  (outbox     │
-                       │  Port 6379       │      │   relay +    │
-                       └──────────────────┘      │   webhook    │
-                                                 │   delivery)  │
-                                                 └──────────────┘
+Client ──▶ API (Express) ──▶ PostgreSQL
+              │                  │ outbox_events
+              ▼                  ▼
+           Redis  ◀──────── Worker: outbox relay + webhook delivery
+       (rate limits, cache,      │
+        BullMQ queue)            └──▶ tenant webhook endpoints (HMAC-signed)
 ```
 
-**Two processes, one image:**
-- **API server** (`npm run dev`) — handles HTTP requests, writes transactions + outbox events atomically.
-- **Worker** (`npm run dev:worker`) — relays outbox events to BullMQ, delivers webhooks with retries.
+One Docker image runs as two processes: the API, and a worker that relays
+outbox events and delivers webhooks. The [Next.js console](ledgerflow-console)
+is a separate app that talks to the API through its own server routes, so
+tokens stay in httpOnly cookies and never reach browser JavaScript.
 
----
+More detail: [architecture](docs/architecture.md) ·
+[database schema](docs/schema.md) · [operations](docs/operations.md)
 
-## Prerequisites
+## Getting started
 
-- **Node.js** 22+ (the test runner uses Node 22 glob support; the production image runs Node 20)
-- **Docker** + Docker Compose
-
----
-
-## Quick Start
+Requires Node.js 22+ and Docker.
 
 ```bash
-# 1. Install dependencies
 npm install
-
-# 2. Set up environment
 cp .env.example .env
-
-# 3. Start Postgres + Redis
 docker compose up postgres redis -d
-
-# 4. Run database migrations
 npm run migrate:up
-
-# 5. Seed demo data (1 tenant, 1 user, a wallet with a ₹1000 opening transaction, 1 webhook endpoint)
-npm run seed
-
-# 6. Start the API server
-npm run dev
-
-# 7. Start the worker (separate terminal)
-npm run dev:worker
+npm run seed            # optional demo tenant, user and wallet
+npm run dev             # API on http://localhost:3000
+npm run dev:worker      # in a second terminal
 ```
 
-### Verify
+Interactive API docs are served at `http://localhost:3000/docs`.
+`docker compose --profile app up --build` runs the whole stack in containers.
 
-```bash
-# Liveness probe
-curl localhost:3000/health/live
-# → {"status":"ok"}
+## API
 
-# Readiness probe (checks Postgres + Redis)
-curl localhost:3000/health/ready
-# → {"status":"ok","checks":{"postgres":"up","redis":"up"}}
+All `/v1` endpoints accept a user JWT (`Authorization: Bearer …`) or an API key
+(`X-API-Key: lk_live_…`) and check a permission.
 
-# Interactive API docs
-open http://localhost:3000/docs
-```
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| `POST` | `/auth/register` | — | Creates a tenant and its owner |
+| `POST` | `/auth/login` | — | Returns an access and refresh token |
+| `POST` | `/auth/refresh` | — | Rotates the refresh token |
+| `POST` | `/auth/logout` | — | Revokes the refresh token |
+| `GET` | `/auth/me` | signed in | Current user |
+| `POST` / `GET` / `DELETE` | `/auth/api-keys` | `apikey:manage` | Scoped keys, shown once |
+| `POST` | `/v1/wallets` | `wallet:write` | |
+| `GET` | `/v1/wallets`, `/v1/wallets/:id` | `wallet:read` | Cursor-paginated list |
+| `POST` | `/v1/transactions` | `transaction:write` | Requires `Idempotency-Key` |
+| `GET` | `/v1/transactions`, `/v1/transactions/:id` | `transaction:read` | Filterable list |
+| `POST` / `GET` | `/v1/webhook-endpoints` | `webhook:manage` | Public HTTPS URLs only |
 
----
+Roles: **owner** (everything), **admin** (everything except member management),
+**member** (read/write wallets and transactions), **viewer** (read-only). An API
+key carries an explicit subset of its creator's permissions.
 
-## API Reference
-
-All business endpoints require authentication via **JWT** (`Authorization: Bearer <token>`) or **API key** (`X-API-Key: lk_live_...`).
-
-### Auth
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/auth/register` | Register an organization (creates tenant + owner) |
-| `POST` | `/auth/login` | Log in → access token + refresh token |
-| `POST` | `/auth/refresh` | Rotate refresh token (reuse detection revokes the family) |
-
-### Wallets
-
-| Method | Endpoint | Auth | Permission |
-|--------|----------|------|------------|
-| `POST` | `/v1/wallets` | JWT / API Key | `wallet:write` |
-| `GET` | `/v1/wallets` | JWT / API Key | `wallet:read` |
-| `GET` | `/v1/wallets/:id` | JWT / API Key | `wallet:read` |
-
-### Transactions
-
-| Method | Endpoint | Auth | Permission | Notes |
-|--------|----------|------|------------|-------|
-| `POST` | `/v1/transactions` | JWT / API Key | `transaction:write` | Requires `Idempotency-Key` header |
-| `GET` | `/v1/transactions` | JWT / API Key | `transaction:read` | Cursor-paginated, filterable |
-| `GET` | `/v1/transactions/:id` | JWT / API Key | `transaction:read` | |
-
-### Webhooks
-
-| Method | Endpoint | Auth | Permission |
-|--------|----------|------|------------|
-| `POST` | `/v1/webhook-endpoints` | JWT | `webhook:manage` |
-| `GET` | `/v1/webhook-endpoints` | JWT | `webhook:manage` |
-
-### Operational
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /health/live` | Liveness probe |
-| `GET /health/ready` | Readiness probe (Postgres + Redis) |
-| `GET /metrics` | Prometheus metrics |
-| `GET /docs` | Swagger UI |
-| `GET /openapi.json` | OpenAPI 3.0 spec |
-
----
-
-## RBAC (Role-Based Access Control)
-
-| Role | Permissions |
-|------|-------------|
-| **owner** | All permissions including `member:manage` |
-| **admin** | Everything except `member:manage` |
-| **member** | Wallet + transaction read/write |
-| **viewer** | Read-only (wallets + transactions) |
-| **api_key** | Scoped to explicit permissions set at creation |
-
----
-
-## System Guarantees
-
-| Guarantee | Mechanism |
-|-----------|-----------|
-| **Double-entry accounting** | Every transfer creates one debit + one credit entry; a deferred database trigger rejects any transaction whose entries don't sum to zero |
-| **Append-only ledger** | Database triggers reject `UPDATE`, `DELETE` and `TRUNCATE` on `ledger_entries` |
-| **Tenant isolation** | `ledger_entries.tenant_id` + composite foreign keys: an entry, its transaction and its wallet must belong to the same tenant |
-| **No oversell** | Optimistic locking (`version = $expected`) + `balance + delta >= 0` + database CHECK constraint |
-| **Deadlock-free** | Wallet updates applied in canonical (sorted-by-id) order |
-| **Idempotent writes** | `UNIQUE(tenant_id, key)` constraint; replays return stored response; body mismatch → 422; released on 5xx |
-| **Transactional outbox** | Event written in the SAME database transaction as the money movement — no dual-write gap |
-| **Safe concurrent relay** | `FOR UPDATE SKIP LOCKED` claims events; enqueue before marking published |
-| **At-least-once delivery** | `UNIQUE(event_id, endpoint_id)` + worker skips `status = 'success'`; receivers must dedupe by event id (a timed-out request may be retried after the receiver processed it) |
-| **Signed webhooks** | HMAC-SHA256 over `timestamp.body`; signing secrets stored AES-256-GCM encrypted |
-| **Retries + DLQ** | BullMQ exponential backoff, 8 attempts max, failed set = dead-letter queue |
-| **Refresh token rotation** | Family-based reuse detection — replaying a rotated token revokes the entire family |
-
----
-
-## Database Schema
-
-All money values are stored as **`BIGINT` minor units** (paise/cents) — never floats.
-
-| Table | Purpose |
-|-------|---------|
-| `tenants` | Multi-tenant root — everything scopes to a tenant |
-| `users` | Dashboard identity; email is unique across all tenants (login is by email alone) |
-| `api_keys` | Programmatic auth — stores `sha256(key)`, never the raw key |
-| `refresh_tokens` | Session rotation with `family_id` for reuse detection |
-| `wallets` | Balance holder with `version` for optimistic locking; `kind` = `user` \| `system` (internal counter-account) |
-| `transactions` | Logical money movement grouping |
-| `ledger_entries` | Append-only double-entry lines |
-| `idempotency_keys` | Ingress deduplication |
-| `outbox_events` | Reliable events (partial index on `pending`) |
-| `webhook_endpoints` | Delivery targets with per-tenant HMAC secret (encrypted at rest) |
-| `webhook_deliveries` | Delivery tracking with `UNIQUE(event_id, endpoint_id)` |
-
-### Migrations
-
-```bash
-npm run migrate:up     # Apply all migrations
-npm run migrate:down   # Roll back the latest migration
-```
-
-Migration order: `extensions → identity → ledger → idempotency+outbox → webhooks → outbox trace context → integrity hardening → unique user email`
-
-**Upgrading a database created before `1700000000006_integrity-hardening`:** that migration starts storing webhook signing secrets encrypted, but it can't encrypt existing ones (the key isn't in the database). Run this once afterwards, or deliveries to existing endpoints will fail:
-
-```bash
-npm run migrate:up
-npm run secrets:encrypt   # safe to re-run; already-encrypted rows are skipped
-```
-
-Rules the database now enforces (balanced transactions, append-only ledger, tenant isolation, system wallets) are described in [docs/schema.md](docs/schema.md).
-
----
-
-## Observability
-
-### Prometheus Metrics
-
-Available at `GET /metrics` (API) and port `9100` (worker).
-
-Custom metrics:
-- `ledgerflow_http_request_duration_seconds` — HTTP latency histogram
-- `ledgerflow_webhook_deliveries_total` — Webhook delivery outcomes
-- `ledgerflow_outbox_lag_seconds` — Age of oldest unpublished outbox event
-
-### OpenTelemetry Tracing (opt-in)
-
-A single distributed trace spans **API request → outbox → relay → webhook delivery** across two processes.
-
-```bash
-# Start the observability stack
-docker compose --profile obs up -d
-
-# Run with tracing enabled (PowerShell)
-$env:OTEL_ENABLED="true"; npm run dev
-$env:OTEL_ENABLED="true"; npm run dev:worker
-
-# Run with tracing enabled (bash)
-OTEL_ENABLED=true npm run dev
-OTEL_ENABLED=true npm run dev:worker
-```
-
-- **Grafana**: http://localhost:3001 (anonymous admin)
-- **Prometheus**: http://localhost:9090
-- **API Metrics**: http://localhost:3000/metrics
-
----
+The full contract is in [`openapi.yaml`](openapi.yaml).
 
 ## Testing
 
 ```bash
-# Unit tests (no dependencies needed)
-npm test
-
-# Integration tests (requires Postgres + Redis running)
-npm run test:integration
-
-# Type checking
+npm test                  # unit tests
+npm run test:integration  # needs Postgres and Redis (docker compose up postgres redis -d)
 npm run typecheck
 ```
 
-### Load Testing (k6)
-
-```bash
-# 1. Create funded test fixtures
-npm run load:setup > load/fixture.json
-
-# 2. Run k6
-k6 run load/transfer.js
-```
-
----
-
-## Project Structure
-
-```
-ledgerflow/
-├── docker-compose.yml          # Postgres + Redis (+ optional API, worker, observability)
-├── Dockerfile                  # Multi-stage build, non-root runtime
-├── fly.toml                    # Fly.io deployment config (web + worker processes)
-├── openapi.yaml                # OpenAPI 3.0 specification
-├── migrations/                 # node-pg-migrate database migrations
-├── load/                       # k6 load test scripts
-├── observability/              # Prometheus, Grafana, OTel Collector configs
-└── src/
-    ├── server.ts               # API entrypoint + graceful shutdown
-    ├── worker.ts               # Worker entrypoint (outbox relay + webhook delivery)
-    ├── app.ts                  # Express app factory
-    ├── config/                 # Zod-validated env config (fail-fast on boot)
-    ├── db/                     # PostgreSQL pool + seed script
-    ├── redis/                  # ioredis client + cache-aside layer
-    ├── queue/                  # BullMQ queue setup
-    ├── telemetry/              # Logger (pino), metrics (prom-client), OTel tracing
-    ├── middleware/              # Auth, RBAC, rate limiting, idempotency, validation
-    ├── shared/                 # Crypto, errors, pagination, webhook signing
-    ├── types/                  # Express type augmentations
-    ├── modules/
-    │   ├── auth/               # Register, login, refresh, logout, API keys, RBAC
-    │   ├── health/             # Liveness + readiness probes
-    │   ├── wallets/            # Wallet CRUD with Redis cache
-    │   ├── ledger/             # Double-entry transfers with optimistic locking
-    │   └── webhooks/           # Webhook endpoint management
-    └── workers/
-        ├── outbox-relay.ts     # Polls outbox → enqueues webhook delivery jobs
-        └── webhook-delivery.ts # BullMQ worker: HMAC-signed HTTP delivery + retries
-```
-
----
+CI runs type checking, unit and integration tests against real Postgres and
+Redis, a dependency audit, a full migration rollback and re-apply, and a Docker
+build on every pull request.
 
 ## Deployment
 
-### Free: Render (API) + Vercel (console)
+- **Render + Vercel (free):** [`render.yaml`](render.yaml) is a Render Blueprint
+  for the API, worker, Postgres and Redis; the console deploys to Vercel with
+  root directory `ledgerflow-console`.
+- **Fly.io:** [`fly.toml`](fly.toml) runs the API and worker as separate process
+  groups, with migrations as a release step.
 
-**API, worker, Postgres and Redis on Render.** [`render.yaml`](render.yaml) is a Render Blueprint:
-Render dashboard → **New → Blueprint** → pick this repo → **Apply**. It creates
-the Postgres database, a Key Value (Redis) instance and one web service, and
-generates `JWT_SECRET` and `SECRETS_ENCRYPTION_KEY`. Render's free tier has no
-background workers or pre-deploy step, so the web service runs
-[`scripts/start-all.sh`](scripts/start-all.sh): migrations, then the API and
-the webhook worker in one container.
+See [operations](docs/operations.md) for both, plus observability and load
+testing.
 
-Free-tier limits: the service sleeps after 15 minutes idle (the next request
-takes up to ~1 minute to wake it), and the free database expires 30 days after
-creation unless upgraded.
+## Configuration
 
-**Console on Vercel.** Import this repo in Vercel with **Root Directory**
-`ledgerflow-console` and set `LEDGERFLOW_API_URL` to the Render URL (no
-trailing slash). The console's server routes allow 60 seconds so a sleeping
-API has time to wake.
+Configuration is validated at startup; the process refuses to start if anything
+is missing or invalid. See [`.env.example`](.env.example).
 
-### Fly.io (no sleeping; needs a card)
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `DATABASE_URL` | yes | | PostgreSQL connection string |
+| `REDIS_URL` | yes | | Redis connection string |
+| `JWT_SECRET` | yes | | Access-token signing key (32+ chars) |
+| `SECRETS_ENCRYPTION_KEY` | yes | | 32-byte base64 key for webhook secrets at rest |
+| `PORT` | | `3000` | API port |
+| `TRUST_PROXY_HOPS` | | `1` | Reverse proxies in front of the API (Render: `2`) |
+| `METRICS_TOKEN` | | | Bearer token for `/metrics`; disabled in production when unset |
+| `WEBHOOK_ALLOW_PRIVATE_URLS` | | off in production | Allow webhooks to private addresses (local development only) |
+| `OTEL_ENABLED` | | `false` | Export OpenTelemetry traces |
+| `RATE_LIMIT_POINTS` | | `100` | Requests per minute per IP |
 
-```bash
-fly launch --no-deploy
-fly postgres create                                    # Sets DATABASE_URL
-fly secrets set REDIS_URL=redis://...                  # Managed Redis (e.g. Upstash)
-fly secrets set JWT_SECRET=$(openssl rand -base64 48)
-fly secrets set SECRETS_ENCRYPTION_KEY=$(openssl rand -base64 32)
-fly deploy                                             # Runs migrate:up, then starts web + worker
+The example values for `JWT_SECRET` and `SECRETS_ENCRYPTION_KEY` are rejected
+when `NODE_ENV=production`.
+
+## Project structure
+
 ```
-
-The `fly.toml` defines two process groups (`web`, `worker`) from one Docker image. Migrations run automatically as a release command before the new version serves traffic.
-
----
-
-## Environment Variables
-
-See [`.env.example`](.env.example) for all configuration options. Key variables:
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `DATABASE_URL` | ✅ | — | PostgreSQL connection string |
-| `REDIS_URL` | ✅ | — | Redis connection string |
-| `JWT_SECRET` | ✅ | — | Signing key for access tokens (min 32 chars). The `.env.example` value is rejected in production |
-| `SECRETS_ENCRYPTION_KEY` | ✅ | — | 32-byte base64 key encrypting webhook secrets at rest. The `.env.example` value is rejected in production |
-| `PORT` | | `3000` | API server port |
-| `TRUST_PROXY_HOPS` | | `1` | Reverse proxies in front of the app, so per-IP rate limits see the real client (Render: `2`) |
-| `METRICS_TOKEN` | | — | Bearer token for `/metrics`; in production `/metrics` returns 404 unless set |
-| `WEBHOOK_ALLOW_PRIVATE_URLS` | | `false` in production | Allow webhooks to private/internal addresses (local dev only; enabling in production allows SSRF) |
-| `OTEL_ENABLED` | | `false` | Enable OpenTelemetry tracing |
-| `WEBHOOK_MAX_ATTEMPTS` | | `8` | Max webhook delivery retries |
-| `RATE_LIMIT_POINTS` | | `100` | Global rate limit (requests per window) |
-
----
+src/
+  server.ts, worker.ts   entry points (API, worker)
+  app.ts                 Express app
+  config/                environment validation
+  middleware/            auth, RBAC, rate limiting, idempotency, validation, errors
+  modules/               auth, wallets, ledger, webhooks, health
+  workers/               outbox relay, webhook delivery
+  shared/                crypto, SSRF guard, webhook signing, pagination
+  telemetry/             logging, metrics, tracing
+migrations/              database migrations (node-pg-migrate)
+ledgerflow-console/      Next.js operator console
+load/                    k6 load test
+observability/           Prometheus, Grafana and OpenTelemetry Collector config
+```
 
 ## License
 
-MIT
+[MIT](LICENSE)

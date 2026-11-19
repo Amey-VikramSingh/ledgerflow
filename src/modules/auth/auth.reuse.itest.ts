@@ -8,8 +8,8 @@ import { pool } from '../../db/pool';
  *   docker compose up postgres -d && npm run migrate:up
  *   npm run test:integration
  *
- * This is THE interview story: rotation works, and replaying a rotated token
- * burns the whole family.
+ * Covers refresh-token rotation and reuse detection: replaying a rotated
+ * token revokes every token in its family.
  */
 
 let refreshToken: string;

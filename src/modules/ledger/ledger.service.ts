@@ -27,8 +27,7 @@ export interface PostedTransfer {
 }
 
 /**
- * Post a wallet-to-wallet transfer. This is the heart of the system and
- * demonstrates four guarantees at once:
+ * Post a wallet-to-wallet transfer. Four guarantees hold together here:
  *
  *  1. DOUBLE-ENTRY: one debit + one credit of equal amount → entries sum to 0.
  *  2. OPTIMISTIC LOCKING: each wallet update is guarded by `version = $expected`.

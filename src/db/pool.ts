@@ -4,7 +4,7 @@ import { logger } from '../telemetry/logger';
 
 /**
  * A single shared connection pool for the process. Never open ad-hoc clients.
- * Pool sizing matters under load (Day 8+); the default (max 10) is fine for now.
+ * max 10 connections; raise it (and Postgres max_connections) for heavier load.
  */
 export const pool = new Pool({
   connectionString: config.DATABASE_URL,

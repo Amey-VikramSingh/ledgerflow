@@ -1,4 +1,4 @@
-# Schema (Day 2)
+# Database schema
 
 All money is `BIGINT` **minor units** (paise/cents). Never float. All timestamps `TIMESTAMPTZ`.
 
@@ -9,7 +9,7 @@ All money is `BIGINT` **minor units** (paise/cents). Never float. All timestamps
 | `tenants` | multi-tenant root | everything scopes to a tenant |
 | `users` | dashboard identity | email unique across **all** tenants (`users_email_unique`), because login identifies a user by email alone |
 | `api_keys` | programmatic auth | store `sha256(key)`, never the raw key |
-| `refresh_tokens` | session rotation | `family_id` + `rotated` enable reuse detection (Day 4) |
+| `refresh_tokens` | session rotation | `family_id` + `rotated` enable reuse detection |
 | `wallets` | balance holder | `version` = optimistic lock; `balance` = cached ledger projection; `kind` = `user` \| `system` |
 | `transactions` | logical money movement | groups ledger entries |
 | `ledger_entries` | double-entry lines | **append-only** and **balanced**, both enforced by triggers |
@@ -18,13 +18,13 @@ All money is `BIGINT` **minor units** (paise/cents). Never float. All timestamps
 | `webhook_endpoints` | delivery targets | per-tenant HMAC secret, encrypted at rest |
 | `webhook_deliveries` | delivery attempts | `UNIQUE(event_id, endpoint_id)` = one delivery record per event per endpoint |
 
-## Why these choices (interview-ready)
+## Design choices
 
 - **Money as `BIGINT`** — floating point can't represent 0.10 exactly; a ledger that loses fractions of a cent is a broken ledger.
 - **`wallets.version`** — the optimistic-lock guard. A debit does `UPDATE ... SET version = version + 1 WHERE id = $id AND version = $expected`. Two concurrent debits can't both match `$expected`, so one retries. No oversell without pessimistic row locks.
-- **Cached `balance`** — reading the balance is O(1) instead of summing the whole ledger. The ledger remains the source of truth; a reconciliation job (later) asserts `balance == sum(entries)`.
+- **Cached `balance`** — reading the balance is O(1) instead of summing the whole ledger. The ledger remains the source of truth; a reconciliation job can assert `balance == sum(entries)`.
 - **`UNIQUE(tenant_id, key)` on idempotency** — the database, not application code, decides which duplicate request wins the insert. Concurrency correctness lives in the constraint.
-- **Partial index `WHERE status = 'pending'`** on outbox — the relay's hot query (`SELECT ... WHERE status='pending'`) only scans unpublished rows, staying fast forever.
+- **Partial index `WHERE status = 'pending'`** on outbox — the relay's hot query (`SELECT ... WHERE status='pending'`) only scans unpublished rows, so it stays fast as the table grows.
 
 ## Ledger rules the database enforces
 

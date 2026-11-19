@@ -23,7 +23,6 @@ server.on('error', (err) => {
  * Graceful shutdown: on SIGTERM/SIGINT stop accepting new connections,
  * drain in-flight requests, then close the pool and Redis. If it takes
  * too long, force-exit so the orchestrator isn't left waiting.
- * Reviewers check for this — a service that dies mid-request loses data.
  */
 let shuttingDown = false;
 

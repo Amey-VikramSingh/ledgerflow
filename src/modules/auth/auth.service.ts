@@ -146,8 +146,8 @@ export async function login(input: LoginInput): Promise<TokenPair> {
 
 /**
  * Issue an access JWT + an opaque refresh token. The refresh token is random
- * (not a JWT) because we must track it in the DB for rotation/reuse detection
- * (Day 4). We store only sha256(token) — never the raw token.
+ * (not a JWT) because we must track it in the DB for rotation/reuse detection.
+ * We store only sha256(token), never the raw token.
  * A fresh family_id groups all tokens descended from this login.
  */
 export async function issueTokens(user: {

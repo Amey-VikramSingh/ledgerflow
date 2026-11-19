@@ -3,7 +3,7 @@
 /**
  * Wallets & double-entry ledger.
  *
- * Design decisions worth defending in an interview:
+ * Design decisions:
  *  - Money is BIGINT minor units (paise/cents). NEVER float — floats lose money.
  *  - wallets.version is the OPTIMISTIC LOCK: concurrent debits can't both win.
  *  - wallets.balance is a cached projection of the ledger for O(1) reads.

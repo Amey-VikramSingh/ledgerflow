@@ -1,34 +1,40 @@
 # LedgerFlow Console
 
-Operator console for the LedgerFlow API. Next.js 14 (App Router) · TypeScript ·
-Tailwind · TanStack Query.
+Operator console for the LedgerFlow API, built with Next.js (App Router),
+TypeScript, Tailwind CSS and TanStack Query.
 
-## Architecture — Backend-for-Frontend (BFF)
-The browser never touches tokens. Auth happens through this app's own route
-handlers, which store the access/refresh tokens in **httpOnly cookies**:
+Live: https://ledgerflow-console.vercel.app
+
+## How authentication works
+
+The browser never handles tokens. The console's own route handlers talk to the
+API and keep the access and refresh tokens in httpOnly cookies:
 
 ```
-browser ──/api/auth/login──▶ Next route ──▶ LedgerFlow /auth/login
+browser ──/api/auth/login──▶ console route ──▶ API /auth/login
                              sets lf_access + lf_refresh (httpOnly)
-browser ──/api/lf/v1/*────▶ Next proxy  ──▶ LedgerFlow /v1/*  (Bearer attached here)
-                             on 401: rotates refresh once, retries, re-sets cookies
+browser ──/api/lf/v1/*────▶ console proxy ──▶ API /v1/*  (Bearer token added here)
+                             on 401: refreshes once, retries, updates cookies
 ```
-This mitigates XSS token theft and exercises the API's refresh-rotation +
-reuse-detection transparently. See `src/app/api/lf/[...path]/route.ts`.
 
-## Run
+Keeping tokens out of JavaScript limits what a cross-site scripting bug could
+steal. The proxy is `src/app/api/lf/[...path]/route.ts`.
+
+## Running locally
+
 ```bash
-cp .env.example .env.local   # set LEDGERFLOW_API_URL to your API
+cp .env.example .env.local   # LEDGERFLOW_API_URL=http://localhost:3000
 npm install
-npm run dev                  # http://localhost:3000  (API on a separate port)
+npm run dev -- -p 3100       # the API uses port 3000
 ```
 
 ## Design
-Color encodes double-entry **direction**: credit-in is green, debit-out is rose,
-figures are monospace + tabular so they column-align like a real ledger. The
-`Money` component (`src/components/money.tsx`) carries this everywhere.
+
+Colour encodes the direction of a ledger entry (credits green, debits rose), and
+amounts use monospaced tabular figures so columns line up. The `Money`
+component (`src/components/money.tsx`) applies this everywhere.
 
 ## Status
-Shipped: auth (login/register via BFF), Overview, Wallets (list/create/detail).
-Next: Transactions (create + filters), Webhooks, API keys, and a live-demo tab
-that visualizes concurrency (no oversell), idempotency dedup, and outbox→webhook.
+
+Available: sign-up and sign-in, overview, and wallets (list, create, detail).
+Planned: transactions, webhooks and API key management.
